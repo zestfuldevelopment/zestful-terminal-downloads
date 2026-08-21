@@ -8,13 +8,31 @@ on its own, without the rest of the product.
 
 ## Install
 
-**Linux** (Debian/Ubuntu `.deb`):
+**macOS** (curl ships with macOS):
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/zestfuldevelopment/zestful-terminal-downloads/main/install.sh | sh
+curl -fsSL https://zestful.dev/zterm/install.sh | sh
 ```
 
-macOS and Windows follow once their installers land.
+**Linux** (Debian/Ubuntu `.deb`; a clean Ubuntu may not have curl, so use wget):
+
+```sh
+wget -qO- https://zestful.dev/zterm/install.sh | sh
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://zestful.dev/zterm/install.ps1 | iex
+```
+
+The macOS `.pkg` is verified (Developer ID signature + Apple notarization) before
+it installs, and the script refuses anything that fails those checks. The Linux
+`.deb` and Windows `.msi` are **not signed yet**, so their installers skip
+signature verification for now and say so when they run.
+
+Add `--beta` (or `$env:ZTERM_VERSION = 'beta'`) to install the newest beta build
+instead of the stable release.
 
 ## Channels
 
