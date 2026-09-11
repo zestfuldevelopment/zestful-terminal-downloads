@@ -76,6 +76,17 @@ case "$(uname -s)" in
         esac
         [ "$os_major" -ge "$MIN_MACOS_MAJOR" ] || \
             fail "zterm needs macOS $MIN_MACOS_MAJOR (Big Sur) or later. You have $(sw_vers -productVersion)."
+        # Not from inside a zterm pane. The package's preinstall stops zterm
+        # before replacing zterm.app -- so this script, running in one of its
+        # panes, would die mid-install with the window. The pkg cannot refuse
+        # this itself (preinstall runs under installd, and sudo resets the
+        # environment); this script runs in the pane, before sudo, and can.
+        # Every zterm pane carries ZESTFUL_TERM_PANE_ID. Linux is not guarded:
+        # the .deb's prerm sees a hosting zterm above it and leaves it alone.
+        [ -z "${ZESTFUL_TERM_PANE_ID:-}" ] || \
+            fail "this is running inside a zterm pane, and installing zterm stops zterm -- which ends this
+       script mid-install, and the window with it. Run 'zterm update' instead, which starts the
+       installer outside zterm; or run this from a terminal that is not zterm (Terminal.app, iTerm)."
         ;;
     Linux)
         platform="linux"; PKG_NAME="ZtermSetup.deb"

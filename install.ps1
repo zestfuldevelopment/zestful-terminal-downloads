@@ -36,6 +36,20 @@ function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "==> $m" -ForegroundColor Green }
 function Fail($m) { Write-Host "error: $m" -ForegroundColor Red; exit 1 }
 
+# ── 0b. Not from inside a zterm pane ──────────────────────────────────────────
+# The MSI stops zterm before replacing files, and this script would be running
+# in one of its panes: the install would finish (msiexec is elevated through
+# the AppInfo service and outlives us) but this script would die at the
+# Start-Process below, mid-run, and the window with it. The MSI's own launch
+# condition catches an interactive install; it cannot catch this one, because
+# /passive skips the UI sequence where that condition is evaluated. Every zterm
+# pane carries ZESTFUL_TERM_PANE_ID, so the refusal is one test, here, before
+# anything is downloaded. (Refusing rather than detaching: the steps after the
+# install are the script's whole reason to exist.)
+if ($env:ZESTFUL_TERM_PANE_ID) {
+    Fail "this is running inside a zterm pane, and installing zterm stops zterm -- which would end this script mid-install. Run ``zterm update`` instead, which starts the installer outside zterm; or run this from a terminal that is not zterm (Windows Terminal, PowerShell)."
+}
+
 # ── 1. Resolve version / channel (env var or -Beta; beta wins) ────────────────
 $version = if ($env:ZTERM_VERSION) { $env:ZTERM_VERSION } else { 'latest' }
 if ($Beta -or $version -eq 'beta') { $version = 'beta' }
