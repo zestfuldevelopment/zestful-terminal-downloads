@@ -3,8 +3,6 @@
 Release artifacts and one-line installers for **zterm**, the terminal your
 agents can drive. Downloads only, no source.
 
-<img alt="zterm with Claude Code in one pane and two shells beside it, one of them listing panes and reading text out of another" src="assets/zterm.png" width="100%">
-
 zterm is in private beta. The site asks for an invite code; this repo does
 not, and we know that. If you found your way here and want to try it, go
 ahead, and drop a line to [support@zestful.dev](mailto:support@zestful.dev)
