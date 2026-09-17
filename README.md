@@ -3,8 +3,10 @@
 Release artifacts and one-line installers for **zterm**, the terminal your
 agents can drive. Downloads only, no source.
 
-zterm is in private beta. Invite codes and everything else are at
-[zestful.dev](https://zestful.dev).
+zterm is in private beta. The site asks for an invite code; this repo does
+not, and we know that. If you found your way here and want to try it, go
+ahead, and drop a line to [support@zestful.dev](mailto:support@zestful.dev)
+so we know who is running it and can tell you when something changes.
 
 ## Install
 
