@@ -1,10 +1,10 @@
 # zestful-terminal-downloads
 
-Public release artifacts + one-line installers for **zterm**, the GPU terminal
-from [Zestful](https://zestful.dev). Downloads only — no source.
+Release artifacts and one-line installers for **zterm**, the terminal your
+agents can drive. Downloads only, no source.
 
-zterm also ships inside Zestful itself. This channel is for running the terminal
-on its own, without the rest of the product.
+zterm is in private beta. Invite codes and everything else are at
+[zestful.dev](https://zestful.dev).
 
 ## Install
 
@@ -26,31 +26,32 @@ wget -qO- https://zestful.dev/zterm/install.sh | sh
 irm https://zestful.dev/zterm/install.ps1 | iex
 ```
 
-The macOS `.pkg` is verified (Developer ID signature + Apple notarization) before
-it installs, and the script refuses anything that fails those checks. The Linux
-`.deb` and Windows `.msi` are **not signed yet**, so their installers skip
-signature verification for now and say so when they run.
-
 Add `--beta` (or `$env:ZTERM_VERSION = 'beta'`) to install the newest beta build
 instead of the stable release.
+
+## Requirements
+
+| Platform | |
+|---|---|
+| macOS | macOS 14 (Sonoma) or later, Apple Silicon |
+| Linux | Ubuntu 24.04, Debian 13 or newer (dpkg), x86_64, X11 or Wayland |
+| Windows | Windows 10 22H2 or Windows 11, x64, PowerShell 5.1 or later |
+
+## Signing
+
+The macOS `.pkg` is verified (Developer ID signature and Apple notarization)
+before it installs, and the script refuses anything that fails those checks.
+The Linux `.deb` and Windows `.msi` are not signed yet, so their installers
+skip signature verification for now and say so when they run.
 
 ## Channels
 
 | Tag | |
 |---|---|
 | `stable` | the current release, served as `latest` |
-| `beta` | rolling — replaced in place by CI on every build |
+| `beta` | rolling, replaced in place by CI on every build |
 
-Assets keep fixed names (`ZtermSetup.deb`, and `ZtermSetup.pkg` / `ZtermSetup.msi`
-when those arrive) so their URLs never change. Each channel also carries a
-`<platform>.version` marker recording what is currently published there.
-
-## Note on installing alongside Zestful
-
-The Zestful package already contains this same binary. On Linux the two declare a
-conflict and dpkg will refuse to install both — pick one.
-
-## Versioning
-
-zterm's version line is its own and does not track Zestful's. The point of
-shipping the terminal separately is that it can move at its own pace.
+Assets keep fixed names (`ZtermSetup.pkg`, `ZtermSetup.deb`, `ZtermSetup.msi`,
+and `ZtermUninstall.pkg` for macOS) so their URLs never change. Each channel
+also carries a `<platform>.version` marker recording what is currently
+published there.
