@@ -5,8 +5,9 @@ agents can drive. Downloads only, no source.
 
 zterm is in private beta. The site asks for an invite code; this repo does
 not, and we know that. If you found your way here and want to try it, go
-ahead, and drop a line to [support@zestful.dev](mailto:support@zestful.dev)
-so we know who is running it and can tell you when something changes.
+ahead, and say hello on [Discord](https://discord.gg/K8USgYdR) or by email to
+[support@zestful.dev](mailto:support@zestful.dev), so we know who is running it
+and can tell you when something changes.
 
 ## Install
 
