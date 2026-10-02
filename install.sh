@@ -55,15 +55,64 @@ fail() { printf '%serror:%s %s\n' "$RED" "$RST" "$1" >&2; exit 1; }
 # Download URL -> file, using whichever fetcher is present. A clean Ubuntu ships
 # neither curl nor wget reliably, so we don't hard-depend on curl (macOS always
 # has it; Linux commonly has wget). Both are forced to HTTPS.
+# Progress is shown on BOTH paths. curl's default meter and wget's bar go to
+# stderr, which is still the terminal when the script arrives through `| sh`,
+# so a 10 MB download no longer looks like a hang. wget keeps -q to silence its
+# connection chatter, with --show-progress putting the bar back.
 download() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --proto '=https' --tlsv1.2 -o "$2" "$1"
+        curl -fL --proto '=https' --tlsv1.2 --progress-bar -o "$2" "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --https-only -O "$2" "$1"
+        wget -q --show-progress --https-only -O "$2" "$1"
     else
         fail "Need curl or wget to download, but neither is installed.
        Install one (e.g. 'sudo apt-get install -y wget') and re-run."
     fi
+}
+
+# The HTTP status for a URL, without fetching the body -- empty when the server
+# could not be reached at all. This is asked BEFORE the download so a missing
+# asset and a dead network can be told apart and reported differently.
+#
+# Not inferred from the fetcher's exit code, which was the first attempt and was
+# wrong: a GitHub release asset 404s only after a redirect to its storage host,
+# and curl surfaces that as exit 56 (mid-transfer) rather than 22 (HTTP error).
+# The code to expect therefore varies with where in the redirect chain the
+# refusal lands, which is not a thing to encode. The server's own answer is.
+head_status() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -sIL --proto '=https' --tlsv1.2 --max-time 20 \
+             -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+        # wget prints the status lines to stderr; the LAST one is the end of
+        # the redirect chain.
+        # wget -S prints each response's status line to stderr, indented; the
+        # LAST one is the end of the redirect chain. Matched by finding the
+        # HTTP/ token anywhere on the line rather than by its indentation,
+        # which has not been identical across wget versions.
+        wget -q --https-only --timeout=20 --spider -S "$1" 2>&1 \
+            | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^HTTP\//) code = $(i + 1) }
+                   END { print code }' || true
+    fi
+}
+
+# A small text asset to stdout, quietly. Empty on any failure -- every caller
+# treats the version as a nicety and carries on without it, because not being
+# able to NAME the build is no reason to refuse to install it.
+fetch_quiet() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --proto '=https' --tlsv1.2 --max-time 15 "$1" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --https-only --timeout=15 -O - "$1" 2>/dev/null || true
+    fi
+}
+
+# Bytes -> something a person reads. Integer MB via awk, which both platforms
+# have; `wc -c` rather than stat, whose flags differ between macOS and Linux.
+human_size() {
+    awk -v b="$1" 'BEGIN { if (b >= 1048576) printf "%.1f MB", b/1048576;
+                           else if (b >= 1024) printf "%.0f KB", b/1024;
+                           else printf "%d bytes", b }'
 }
 
 # ── 1. Platform detection + guard ─────────────────────────────────────────────
@@ -102,37 +151,91 @@ esac
 # ── 2. Resolve version ────────────────────────────────────────────────────────
 version="${ZTERM_VERSION:-latest}"
 [ "$channel" = "beta" ] && version="beta"
+# Every channel publishes a `<platform>.version` asset beside the package, so
+# the build can be NAMED before it is fetched rather than described as "the
+# latest" and never identified. Best effort: if the file is missing or the
+# network is slow, the channel is still announced and the install proceeds.
+case "$platform" in
+    macos) VERSION_ASSET="mac.version" ;;
+    *)     VERSION_ASSET="linux.version" ;;
+esac
+
 if [ "$version" = "beta" ]; then
     # Rolling prerelease: the "beta" tag's assets are replaced by CI on every
     # beta publish, so this URL always serves the newest beta build.
     url="$RELEASES_URL/download/beta/$PKG_NAME"
-    info "Installing the latest zterm beta ($platform)."
+    channel_desc="beta channel"
+    found=$(fetch_quiet "$RELEASES_URL/download/beta/$VERSION_ASSET")
 elif [ "$version" = "latest" ]; then
     url="$RELEASES_URL/latest/download/$PKG_NAME"
-    info "Installing the latest zterm release ($platform)."
+    channel_desc="stable channel"
+    found=$(fetch_quiet "$RELEASES_URL/latest/download/$VERSION_ASSET")
 else
     # Accept "3.2.0" or "v3.2.0".
     tag="v${version#v}"
     url="$RELEASES_URL/download/$tag/$PKG_NAME"
-    info "Installing zterm $tag ($platform)."
+    channel_desc="release $tag"
+    found=$(fetch_quiet "$RELEASES_URL/download/$tag/$VERSION_ASSET")
 fi
+found=$(printf '%s' "$found" | tr -d '\r\n ')
+
+if [ -n "$found" ]; then
+    info "Installing zterm $found — $channel_desc, $platform."
+else
+    info "Installing zterm from the $channel_desc ($platform)."
+fi
+printf '%s    from %s%s\n' "$DIM" "$url" "$RST"
 
 # ── 3. Download ───────────────────────────────────────────────────────────────
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/zterm-install.XXXXXX") || fail "Could not create a temp directory."
 trap 'rm -rf "$tmp"' EXIT INT TERM
 pkg="$tmp/$PKG_NAME"
 
+# Ask before fetching, so the reason for a failure is the server's and not a
+# guess. Blaming the network for a 404 is what sent people to look at their
+# wifi over a missing asset.
+status=$(head_status "$url")
+case "$status" in
+    200|"")
+        # 200, or a server that would not answer a HEAD -- some proxies will
+        # not. An empty answer is not treated as failure: the download below
+        # is the real attempt, and refusing to try on a HEAD that did not
+        # work would be worse than trying and reporting what happened.
+        : ;;
+    404)
+        if [ "$version" = "beta" ]; then
+            fail "The beta channel has no $PKG_NAME right now (the server returned 404).
+       Check $RELEASES_URL, or install the stable release by
+       re-running without --beta."
+        fi
+        # GitHub answers 404, not 403, for a private repository's assets when
+        # the client is anonymous -- so "missing" and "not public" are the same
+        # status here and the message has to name both.
+        fail "There is no $PKG_NAME at that URL — the server returned 404, so this is
+       not a connection problem. Either this release has no build for $platform,
+       the version does not exist, or the release is not public. What is
+       published:
+       $RELEASES_URL"
+        ;;
+    401|403)
+        fail "The download server refused access ($status). The release may be private
+       or still publishing. If this persists, report it — a public installer
+       should never need credentials.
+       $RELEASES_URL"
+        ;;
+    *)
+        warn "the server answered $status for the package URL; trying the download anyway."
+        ;;
+esac
+
 info "Downloading $PKG_NAME ..."
 if ! download "$url" "$pkg"; then
-    if [ "$version" = "beta" ]; then
-        fail "Beta download failed. The beta channel may not have a published
-       build right now — check $RELEASES_URL, or install the stable
-       release by re-running without --beta."
-    fi
-    fail "Download failed. Check your connection, or grab the installer manually from:
+    fail "The download did not complete (server said ${status:-?}).
+       Check your connection or proxy and re-run, or fetch it by hand from:
        $RELEASES_URL"
 fi
 [ -s "$pkg" ] || fail "Downloaded file is empty. Try again, or see $RELEASES_URL."
+ok "Downloaded $(human_size "$(wc -c < "$pkg" | tr -d ' ')")."
 
 # ── 4. Verify ─────────────────────────────────────────────────────────────────
 if [ "$platform" = "macos" ]; then
@@ -193,8 +296,26 @@ else
 fi
 
 # ── 6. Done ───────────────────────────────────────────────────────────────────
-ok "zterm installed."
+# Asked of the thing that was just installed, not of the thing that was
+# downloaded. A package can install and still leave an older binary first on
+# PATH -- a stale /usr/local/bin shim, a Homebrew copy -- and "installed." with
+# no version is exactly the report that hides it.
+installed=$(command -v zterm >/dev/null 2>&1 && zterm --version 2>/dev/null | head -1 | tr -d '\r')
+if [ -n "$installed" ]; then
+    ok "Installed: $installed"
+    # Only when both are known AND disagree. A version we could not fetch is
+    # not evidence of a mismatch.
+    case "$installed" in
+        *"$found"*) : ;;
+        *) [ -z "$found" ] || warn "expected $found, but 'zterm --version' reports: $installed
+         another zterm may be earlier on your PATH: $(command -v zterm 2>/dev/null)" ;;
+    esac
+else
+    ok "zterm installed."
+fi
+
 if [ "$platform" = "macos" ]; then
+    printf '%s    /Applications/zterm.app   and the shim  /usr/local/bin/zterm%s\n' "$DIM" "$RST"
     printf '%s    Open zterm from Applications, or run: zterm%s\n' "$DIM" "$RST"
     printf '%s    To uninstall: run the ZtermUninstall.pkg from %s%s\n' "$DIM" "$RELEASES_URL" "$RST"
 else
