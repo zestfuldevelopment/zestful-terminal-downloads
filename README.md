@@ -17,11 +17,18 @@ and can tell you when something changes.
 curl -fsSL https://zestful.dev/zterm/install.sh | sh
 ```
 
-**Linux** (Debian/Ubuntu `.deb`; a clean Ubuntu may not have curl, so use wget):
+**Linux** (a clean Ubuntu may not have curl, so use wget):
 
 ```sh
 wget -qO- https://zestful.dev/zterm/install.sh | sh
 ```
+
+On Debian and Ubuntu that installs the `.deb`. Anywhere without `dpkg` (Fedora,
+openSUSE, Arch, ...) it installs the AppImage instead, all in your home and with
+no sudo: the file in `~/Applications`, `zterm`/`zc`/`zspawn` links in
+`~/.local/bin`, and a menu entry. Add `--appimage` (`sh -s -- --appimage`) to
+choose the AppImage on Debian/Ubuntu too. A zterm installed this way updates
+itself with `zterm update`.
 
 **Windows** (PowerShell):
 
@@ -37,15 +44,16 @@ instead of the stable release.
 | Platform | |
 |---|---|
 | macOS | macOS 14 (Sonoma) or later, Apple Silicon |
-| Linux | Ubuntu 24.04, Debian 13 or newer (dpkg), x86_64, X11 or Wayland |
+| Linux `.deb` | Ubuntu 24.04, Debian 13 or newer (dpkg), x86_64, X11 or Wayland |
+| Linux AppImage | any distro with glibc 2.39 or newer (Fedora 40, openSUSE Tumbleweed, Arch, ...), x86_64, X11 or Wayland; no libfuse2 needed |
 | Windows | Windows 10 22H2 or Windows 11, x64, PowerShell 5.1 or later |
 
 ## Signing
 
 The macOS `.pkg` is verified (Developer ID signature and Apple notarization)
 before it installs, and the script refuses anything that fails those checks.
-The Linux `.deb` and Windows `.msi` are not signed yet, so their installers
-skip signature verification for now and say so when they run.
+The Linux `.deb` and AppImage and the Windows `.msi` are not signed yet, so
+their installers skip signature verification for now and say so when they run.
 
 ## Channels
 
@@ -55,6 +63,7 @@ skip signature verification for now and say so when they run.
 | `beta` | rolling, replaced in place by CI on every build |
 
 Assets keep fixed names (`ZtermSetup.pkg`, `ZtermSetup.deb`, `ZtermSetup.msi`,
-and `ZtermUninstall.pkg` for macOS) so their URLs never change. Each channel
+`Zterm-x86_64.AppImage`, and `ZtermUninstall.pkg` for macOS) so their URLs never
+change. Each channel
 also carries a `<platform>.version` marker recording what is currently
 published there.

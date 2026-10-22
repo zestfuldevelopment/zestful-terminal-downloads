@@ -20,15 +20,23 @@
 # (ZTERM_VERSION=beta works too; the flag wins if both are given.)
 # On macOS the script refuses to install anything that fails Developer ID +
 # notarization checks. Windows: use install.ps1.
+#
+# Linux without dpkg (Fedora, openSUSE, Arch, ...) gets the AppImage instead:
+# one file in ~/Applications, zterm/zc/zspawn symlinks in ~/.local/bin and a
+# menu entry -- all in your home, no sudo. Force it on Debian/Ubuntu too with:
+#
+#   wget -qO- https://zestful.dev/zterm/install.sh | sh -s -- --appimage
 
 set -eu
 
 # ── 0. Arguments ──────────────────────────────────────────────────────────────
 channel=""
+want_appimage=""
 for arg in "$@"; do
     case "$arg" in
         --beta) channel="beta" ;;
-        *) printf 'error: unknown option: %s (supported: --beta)\n' "$arg" >&2; exit 1 ;;
+        --appimage) want_appimage=1 ;;
+        *) printf 'error: unknown option: %s (supported: --beta, --appimage)\n' "$arg" >&2; exit 1 ;;
     esac
 done
 
@@ -37,6 +45,9 @@ REPO="zestfuldevelopment/zestful-terminal-downloads"
 # 11, not Zestful's 14: zterm's bundle declares LSMinimumSystemVersion 11.0 —
 # the first macOS with Apple Silicon, which is the only architecture it ships.
 MIN_MACOS_MAJOR=11
+# The AppImage is built on ubuntu-latest, so it runs on that glibc or newer.
+MIN_GLIBC="2.39"
+APPIMAGE_NAME="Zterm-x86_64.AppImage"
 SITE="https://zestful.dev/zterm"
 RELEASES_URL="https://github.com/$REPO/releases"
 
@@ -132,6 +143,7 @@ case "$(uname -s)" in
         # environment); this script runs in the pane, before sudo, and can.
         # Every zterm pane carries ZESTFUL_TERM_PANE_ID. Linux is not guarded:
         # the .deb's prerm sees a hosting zterm above it and leaves it alone.
+        [ -z "$want_appimage" ] || fail "--appimage is for Linux; on macOS this installs the signed zterm.app."
         [ -z "${ZESTFUL_TERM_PANE_ID:-}" ] || \
             fail "this is running inside a zterm pane, and installing zterm stops zterm -- which ends this
        script mid-install, and the window with it. Run 'zterm update' instead, which starts the
@@ -139,9 +151,23 @@ case "$(uname -s)" in
         ;;
     Linux)
         platform="linux"; PKG_NAME="ZtermSetup.deb"
-        command -v dpkg >/dev/null 2>&1 || \
-            fail "This installer is a Debian/Ubuntu .deb, but dpkg wasn't found.
-       For other distros, grab the build from $RELEASES_URL."
+        # The .deb where dpkg can install it; the AppImage everywhere else, or
+        # when asked for. An AppImage needs no package manager and no root.
+        if [ -n "$want_appimage" ] || ! command -v dpkg >/dev/null 2>&1; then
+            PKG_NAME="$APPIMAGE_NAME"
+            [ "$(uname -m)" = "x86_64" ] || \
+                fail "The zterm AppImage is built for x86_64, and this machine is $(uname -m)."
+            # getconf answers "glibc 2.43" on glibc and fails on musl, which an
+            # AppImage built against glibc cannot run on at all.
+            glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')
+            [ -n "$glibc" ] || \
+                fail "The zterm AppImage needs glibc, and this system's C library is not glibc
+       (Alpine and other musl distros cannot run it)."
+            # Oldest first under a version sort means the minimum is satisfied.
+            [ "$(printf '%s\n%s\n' "$MIN_GLIBC" "$glibc" | sort -t. -k1,1n -k2,2n | head -1)" = "$MIN_GLIBC" ] || \
+                fail "The zterm AppImage needs glibc $MIN_GLIBC or newer, and this system has $glibc.
+       That is Ubuntu 24.04, Fedora 40, Debian 13, openSUSE Tumbleweed or newer."
+        fi
         ;;
     *)
         fail "This script installs zterm on macOS and Linux.
@@ -254,10 +280,69 @@ if [ "$platform" = "macos" ]; then
        Download manually and inspect: $RELEASES_URL"
     fi
     ok "Verified: Developer ID-signed and notarized."
+elif [ "$PKG_NAME" = "$APPIMAGE_NAME" ]; then
+    warn "The AppImage is not signed yet — installing without signature verification."
 else
     # The Linux .deb is not signed yet, so there's no signature to verify here.
     # (Signing applies to an apt repo's Release file, which we don't publish yet.)
     warn "The Linux .deb is not signed yet — installing without signature verification."
+fi
+
+# ── 4b. The AppImage: into your home, no root ─────────────────────────────────
+# Everything below ends the script; the .deb's root install that follows is
+# never reached. Re-running replaces the file, the same as zterm update does.
+if [ "$PKG_NAME" = "$APPIMAGE_NAME" ]; then
+    apps="$HOME/Applications"
+    bin="$HOME/.local/bin"
+    dest="$apps/$APPIMAGE_NAME"
+    mkdir -p "$apps" "$bin" || fail "Could not create $apps or $bin."
+
+    # Beside the old file and renamed over it, so an upgrade never leaves a
+    # half-written AppImage -- and a zterm running from the old one keeps it
+    # open until it exits.
+    cp "$pkg" "$dest.new" && chmod 755 "$dest.new" && mv -f "$dest.new" "$dest" || \
+        fail "Could not put the AppImage at $dest."
+    ok "Installed $dest"
+
+    # zterm, zc and zspawn are all this one file: run under another name, the
+    # AppImage starts that tool. Our own links are replaced; a real file of
+    # the same name -- another install -- is left alone and named.
+    for tool in zterm zc zspawn; do
+        link="$bin/$tool"
+        if [ -e "$link" ] && [ ! -L "$link" ]; then
+            warn "$link already exists and is not a link; left it alone, so '$tool' runs that one."
+            continue
+        fi
+        ln -sf "$dest" "$link"
+    done
+    case ":$PATH:" in
+        *":$bin:"*) : ;;
+        *) warn "$bin is not on your PATH, so zterm, zc and zspawn are not found by name yet.
+         Add it in your shell's profile:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+    esac
+
+    # A menu entry and icon, taken from the AppImage's own, so the launcher
+    # finds zterm and the window gets its icon rather than a generic one.
+    if (cd "$tmp" && "$dest" --appimage-extract zterm.desktop >/dev/null 2>&1 \
+            && "$dest" --appimage-extract 'usr/share/icons/hicolor/512x512/apps/zterm.png' >/dev/null 2>&1); then
+        mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/512x512/apps"
+        sed "s|^Exec=zterm|Exec=$dest|" "$tmp/squashfs-root/zterm.desktop" \
+            > "$HOME/.local/share/applications/zterm.desktop"
+        cp "$tmp/squashfs-root/usr/share/icons/hicolor/512x512/apps/zterm.png" \
+            "$HOME/.local/share/icons/hicolor/512x512/apps/zterm.png"
+        command -v update-desktop-database >/dev/null 2>&1 && \
+            update-desktop-database -q "$HOME/.local/share/applications" 2>/dev/null || true
+        ok "Added zterm to your application menu."
+    else
+        warn "Could not read the menu entry out of the AppImage; zterm is installed, but not in the menu."
+    fi
+
+    installed=$("$dest" --version 2>/dev/null | head -1 | tr -d '\r')
+    [ -n "$installed" ] && ok "Installed: $installed"
+    printf '%s    Run: zterm   It updates itself with: zterm update%s\n' "$DIM" "$RST"
+    printf '%s    To uninstall: rm %s %s/zterm %s/zc %s/zspawn \\%s\n' "$DIM" "$dest" "$bin" "$bin" "$bin" "$RST"
+    printf '%s                     ~/.local/share/applications/zterm.desktop ~/.local/share/icons/hicolor/512x512/apps/zterm.png%s\n' "$DIM" "$RST"
+    exit 0
 fi
 
 # ── 5. Install (needs root) ───────────────────────────────────────────────────
