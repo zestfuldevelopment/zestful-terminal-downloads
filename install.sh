@@ -11,13 +11,14 @@
 # ZtermSetup.pkg on macOS, or ZtermSetup.deb on Debian/Ubuntu — then installs
 # it. Re-running upgrades in place. Pin a version with:
 #
-#   ZTERM_VERSION=0.2.0 curl -fsSL https://zestful.dev/zterm/install.sh | sh
+#   curl -fsSL https://zestful.dev/zterm/install.sh | ZTERM_VERSION=0.2.0 sh
 #
 # Install the latest beta build instead of the stable release:
 #
 #   curl -fsSL https://zestful.dev/zterm/install.sh | sh -s -- --beta
 #
-# (ZTERM_VERSION=beta works too; the flag wins if both are given.)
+# (`| ZTERM_VERSION=beta sh` works too; the flag wins if both are given. The
+# variable goes on sh, which runs the script, not on curl.)
 # On macOS the script refuses to install anything that fails Developer ID +
 # notarization checks. Windows: use install.ps1.
 #
