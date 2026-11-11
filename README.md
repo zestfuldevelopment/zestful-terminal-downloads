@@ -51,9 +51,10 @@ instead of the stable release.
 ## Signing
 
 The macOS `.pkg` is verified (Developer ID signature and Apple notarization)
-before it installs, and the script refuses anything that fails those checks.
-The Linux `.deb` and AppImage and the Windows `.msi` are not signed yet, so
-their installers skip signature verification for now and say so when they run.
+before it installs, and the Windows `.msi` is verified (Authenticode, pinned to
+Zestful) before it installs; a download that fails those checks is deleted and
+not installed. The Linux `.deb` and AppImage are not signed yet, so their
+installers skip signature verification for now and say so when they run.
 
 ## Channels
 

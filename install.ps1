@@ -110,7 +110,8 @@ if (-not (Test-Path $msi) -or (Get-Item $msi).Length -eq 0) {
 function Assert-ZestfulSignature($path) {
     $sig = Get-AuthenticodeSignature -LiteralPath $path
     if ($sig.Status -ne 'Valid') {
-        Fail "not installing: Windows does not accept the installer's signature ($($sig.Status): $($sig.StatusMessage)). Nothing was installed; see $ReleasesUrl."
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "not installing: Windows does not accept the installer's signature ($($sig.Status): $($sig.StatusMessage)). The download was deleted; see $ReleasesUrl."
     }
     $cert = $sig.SignerCertificate
     $subject = @{}
@@ -133,7 +134,8 @@ function Assert-ZestfulSignature($path) {
           $subject['S'] -ceq 'California' -and $subject['C'] -ceq 'US' -and
           $root -ceq 'Microsoft Identity Verification Root Certificate Authority 2020'
     if (-not $ok) {
-        Fail "not installing: the installer is not signed by Zestful, Inc. It is signed by '$($cert.Subject)' under the root '$root'. Nothing was installed; see $ReleasesUrl."
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "not installing: the installer is not signed by Zestful, Inc. It is signed by '$($cert.Subject)' under the root '$root'. The download was deleted; see $ReleasesUrl."
     }
     Ok "Signature verified: Zestful, Inc."
 }
