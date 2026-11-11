@@ -18,8 +18,8 @@
 
     (Running the file directly, you can pass -Beta instead of the env var.)
 
-    NOTE: the MSI is not Authenticode-signed yet, so this script does not verify a
-    signature. Signature verification will be added once signing is in place.
+    The MSI is Authenticode-signed; this script refuses to install one that is
+    unsigned, or signed by anyone but Zestful, Inc.
 #>
 [CmdletBinding()]
 param([switch]$Beta)
@@ -95,10 +95,51 @@ if (-not (Test-Path $msi) -or (Get-Item $msi).Length -eq 0) {
 }
 
 # ── 3. Verify ─────────────────────────────────────────────────────────────────
-# The Windows .msi is not Authenticode-signed yet, so there's no signature to
-# check. When signing lands, verify here with Get-AuthenticodeSignature and
-# require Status -eq 'Valid' + the expected subject before installing.
-Write-Host 'warning: the Windows .msi is not signed yet — installing without signature verification.' -ForegroundColor Yellow
+# The .msi is Authenticode-signed with Azure Artifact Signing. Windows must
+# accept the signature (Status Valid: the contents match it and the chain ends
+# at a trusted root), and the signer must be Zestful: the subject's O, L, S and
+# C exactly, and the chain ending at Microsoft's identity-verification root,
+# which issues an organisation's name and address only after checking them.
+# zterm update makes the same check (crates/zterm/src/update.rs, ZT-788).
+#
+# Artifact Signing certificates live about three days, so the signing
+# certificate has usually expired by the time anyone downloads the file. That
+# is fine: the signature carries a timestamp from inside the certificate's
+# life, which is what Status Valid already checked. So the chain built below,
+# only to read the root's name, ignores the certificate's dates.
+function Assert-ZestfulSignature($path) {
+    $sig = Get-AuthenticodeSignature -LiteralPath $path
+    if ($sig.Status -ne 'Valid') {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "not installing: Windows does not accept the installer's signature ($($sig.Status): $($sig.StatusMessage)). The download was deleted; see $ReleasesUrl."
+    }
+    $cert = $sig.SignerCertificate
+    $subject = @{}
+    foreach ($rdn in ($cert.SubjectName.Format($true) -split "`r?`n")) {
+        $eq = $rdn.IndexOf('=')
+        if ($eq -le 0) { continue }
+        $value = $rdn.Substring($eq + 1).Trim()
+        # A value with a comma in it is quoted: O="Zestful, Inc.".
+        if ($value.Length -ge 2 -and $value.StartsWith('"') -and $value.EndsWith('"')) {
+            $value = $value.Substring(1, $value.Length - 2).Replace('""', '"')
+        }
+        $subject[$rdn.Substring(0, $eq).Trim()] = $value
+    }
+    $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+    $chain.ChainPolicy.RevocationMode = 'NoCheck'
+    $chain.ChainPolicy.VerificationFlags = 'IgnoreNotTimeValid'
+    [void]$chain.Build($cert)
+    $root = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate.GetNameInfo('SimpleName', $false)
+    $ok = $subject['O'] -ceq 'Zestful, Inc.' -and $subject['L'] -ceq 'Monte Sereno' -and
+          $subject['S'] -ceq 'California' -and $subject['C'] -ceq 'US' -and
+          $root -ceq 'Microsoft Identity Verification Root Certificate Authority 2020'
+    if (-not $ok) {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Fail "not installing: the installer is not signed by Zestful, Inc. It is signed by '$($cert.Subject)' under the root '$root'. The download was deleted; see $ReleasesUrl."
+    }
+    Ok "Signature verified: Zestful, Inc."
+}
+Assert-ZestfulSignature $msi
 
 # ── 4. Install (elevates via UAC) ─────────────────────────────────────────────
 Info 'Installing (a User Account Control prompt will appear) ...'
