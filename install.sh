@@ -127,6 +127,73 @@ human_size() {
                            else printf "%d bytes", b }'
 }
 
+# ── WebKitGTK (Linux AppImage) ────────────────────────────────────────────────
+# zterm links libwebkit2gtk-4.1 and the AppImage does not bundle it; the .deb
+# declares it, so apt brings it in there. These are the same checks the
+# AppImage's own AppRun makes (zestful-terminal-linux-installer, appimage/AppRun);
+# keep the two in step.
+WEBKIT_LIB="libwebkit2gtk-4.1.so.0"
+
+# Whether the loader can find WebKitGTK. No ldconfig, or an empty cache, is
+# an unknown and counts as yes.
+webkit_present() {
+    for ldc in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+        if command -v "$ldc" >/dev/null 2>&1; then
+            cache=$("$ldc" -p 2>/dev/null) || return 0
+            [ -n "$cache" ] || return 0
+            case "$cache" in
+                *"$WEBKIT_LIB"*) return 0 ;;
+                *) return 1 ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+# The command that installs WebKitGTK on this distro, from os-release ($1);
+# empty for a distro we do not know. ID first, then ID_LIKE for derivatives.
+webkit_install_cmd() {
+    osr="${1:-/etc/os-release}"
+    [ -r "$osr" ] || return 0
+    ids=$(
+        # shellcheck disable=SC1090
+        . "$osr" 2>/dev/null
+        printf '%s %s' "${ID:-}" "${ID_LIKE:-}"
+    )
+    for id in $ids; do
+        case "$id" in
+            debian|ubuntu) echo "sudo apt install libwebkit2gtk-4.1-0"; return 0 ;;
+            fedora|rhel|centos) echo "sudo dnf install webkit2gtk4.1"; return 0 ;;
+            opensuse*|suse|sles) echo "sudo zypper install libwebkit2gtk-4_1-0"; return 0 ;;
+        esac
+    done
+}
+
+# Run as root (under sudo), install WebKitGTK. Otherwise say what to run:
+# the AppImage is installed either way, and starts once WebKitGTK is there.
+webkit_check() {
+    webkit_present && return 0
+    cmd=$(webkit_install_cmd "${ZTERM_OS_RELEASE:-/etc/os-release}")
+    if [ -n "$cmd" ] && [ "$(id -u)" -eq 0 ]; then
+        # As root: no sudo, and no question to answer.
+        root_cmd=$(printf '%s' "${cmd#sudo }" | sed 's/ install / install -y /')
+        info "zterm needs WebKitGTK; installing it: $root_cmd"
+        # shellcheck disable=SC2086
+        if $root_cmd; then ok "Installed WebKitGTK."; return 0; fi
+        warn "installing WebKitGTK failed."
+    fi
+    if [ -n "$cmd" ]; then
+        warn "zterm needs WebKitGTK, which is not installed. Install it with:
+
+         $cmd
+
+       zterm will not start until it is installed."
+    else
+        warn "zterm needs WebKitGTK, which is not installed. Install the package that
+       provides $WEBKIT_LIB with your package manager; zterm will not start until it is."
+    fi
+}
+
 # ── 1. Platform detection + guard ─────────────────────────────────────────────
 case "$(uname -s)" in
     Darwin)
@@ -337,6 +404,8 @@ if [ "$PKG_NAME" = "$APPIMAGE_NAME" ]; then
     else
         warn "Could not read the menu entry out of the AppImage; zterm is installed, but not in the menu."
     fi
+
+    webkit_check
 
     installed=$("$dest" --version 2>/dev/null | head -1 | tr -d '\r')
     [ -n "$installed" ] && ok "Installed: $installed"
